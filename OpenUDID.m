@@ -163,7 +163,7 @@ static int const kOpenUDIDRedundancySlots = 100;
 
     
 	NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSString *bundleid = [[NSBundle mainBundle] bundleIdentifier];
+    NSString *bundleid = [[NSBundle bundleForClass:[self class]] bundleIdentifier];
     NSString* openUDID = nil;
     NSString* myRedundancySlotPBid = nil;
     NSDate* optedOutDate = nil;
