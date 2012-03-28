@@ -52,6 +52,7 @@ static NSString * const kOpenUDIDSlotKey = @"OpenUDID_slot";
 static NSString * const kOpenUDIDBIDKey = @"OpenUDID_bundleid";
 static NSString * const kOpenUDIDTSKey = @"OpenUDID_createdTS";
 static NSString * const kOpenUDIDOOTSKey = @"OpenUDID_optOutTS";
+static NSString * const kOpenUDIDSaltKey = @"OpenUDID_salt";
 static NSString * const kOpenUDIDDomain = @"org.OpenUDID";
 static NSString * const kOpenUDIDSlotPBPrefix = @"org.OpenUDID.slot.";
 static int const kOpenUDIDRedundancySlots = 100;
@@ -59,6 +60,8 @@ static int const kOpenUDIDRedundancySlots = 100;
 @interface OpenUDID (Private)
 + (void) _setDict:(id)dict forPasteboard:(id)pboard;
 + (NSMutableDictionary*) _getDictFromPasteboard:(id)pboard;
++ (NSString*) _hashForString:(NSString *)stringValue;
++ (NSString*) _uniqueHash;
 + (NSString*) _getOpenUDID;
 @end
 
@@ -91,6 +94,25 @@ static int const kOpenUDIDRedundancySlots = 100;
     return [NSMutableDictionary dictionaryWithDictionary:(item == nil || [item isKindOfClass:[NSDictionary class]]) ? item : nil];
 }
 
+// Private method to create and return a hash for the given string
+// used to generate OpenUDIDs and salted hash bundle identifiers
++(NSString *)_hashForString:(NSString *)stringValue{
+    unsigned char result[16];
+    const char *cStr = [stringValue UTF8String];
+    CC_MD5( cStr, strlen(cStr), result );
+    return [NSString stringWithFormat:
+                 @"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%08x",
+                 result[0], result[1], result[2], result[3], 
+                 result[4], result[5], result[6], result[7],
+                 result[8], result[9], result[10], result[11],
+                 result[12], result[13], result[14], result[15],
+                 arc4random() % 4294967295];   
+}
+
++(NSString *)_uniqueHash{
+    return [OpenUDID _hashForString:[[NSProcessInfo processInfo] globallyUniqueString]];
+}
+
 // Private method to create and return the OpenUDID
 // Note that the default behavior on iOS is to return the current UDID if the function is not deprecated
 // Theoretically, this function is called once ever per application when calling [OpenUDID value] for the first time.
@@ -120,16 +142,7 @@ static int const kOpenUDIDRedundancySlots = 100;
     // Collision is possible of course, but unlikely and suitable for most industry needs (e.g.. aggregate tracking)
     //
     if (_openUDID==nil) {
-        unsigned char result[16];
-        const char *cStr = [[[NSProcessInfo processInfo] globallyUniqueString] UTF8String];
-        CC_MD5( cStr, strlen(cStr), result );
-        _openUDID = [NSString stringWithFormat:
-                @"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%08x",
-                result[0], result[1], result[2], result[3], 
-                result[4], result[5], result[6], result[7],
-                result[8], result[9], result[10], result[11],
-                result[12], result[13], result[14], result[15],
-                arc4random() % 4294967295];  
+        _openUDID = [OpenUDID _uniqueHash];
     }
     
     // Call to other developers in the Open Source community:
@@ -164,12 +177,26 @@ static int const kOpenUDIDRedundancySlots = 100;
     
 	NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSString *bundleid = [[NSBundle bundleForClass:[self class]] bundleIdentifier];
+    NSString *hashedBundleid = nil;
     NSString* openUDID = nil;
     NSString* myRedundancySlotPBid = nil;
     NSDate* optedOutDate = nil;
     BOOL optedOut = NO;
     BOOL saveLocalDictToDefaults = NO;
     BOOL isCompromised = NO;
+    
+    // Do we have a bundle salt?
+    // if not, create it and store it in NSUserDefaults. This is explicitly synchronized to ensure the salt persists across sessions.
+    NSString *bundleSalt = [defaults objectForKey:kOpenUDIDSaltKey];
+    if (bundleSalt == nil) {
+        bundleSalt = [OpenUDID _uniqueHash];
+        [defaults setValue:bundleSalt forKey:kOpenUDIDSaltKey];
+        [defaults synchronize];
+    }
+    
+    // create hashed bundle id
+    hashedBundleid = [OpenUDID _hashForString:[bundleid stringByAppendingString:bundleSalt]];
+    NSLog(@"Hashed bundle id! %@", hashedBundleid);
     
     // Do we have a local copy of the OpenUDID dictionary?
     // This local copy contains a copy of the openUDID, myRedundancySlotPBid (and unused in this block, the local bundleid, and the timestamp)
@@ -212,7 +239,7 @@ static int const kOpenUDIDRedundancySlots = 100;
             }
             // if we have a match with the bundleid, then let's look if the external UIPasteboard representation marks this app as OptedOut
             NSString* bid = [dict objectForKey:kOpenUDIDBIDKey];
-            if (bid!=nil && [bid isEqualToString:bundleid]) {
+            if (bid!=nil && [bid isEqualToString:hashedBundleid]) {
                 myRedundancySlotPBid = slotPBid;
                 optedOutDate = [dict objectForKey:kOpenUDIDOOTSKey];
                 optedOut = optedOutDate!=nil;
@@ -245,7 +272,7 @@ static int const kOpenUDIDRedundancySlots = 100;
         if (localDict==nil) { 
             localDict = [NSMutableDictionary dictionaryWithCapacity:4];
             [localDict setObject:openUDID forKey:kOpenUDIDKey];
-            [localDict setObject:bundleid forKey:kOpenUDIDBIDKey];
+            [localDict setObject:hashedBundleid forKey:kOpenUDIDBIDKey];
             [localDict setObject:[NSDate date] forKey:kOpenUDIDTSKey];
             if (optedOut) [localDict setObject:optedOutDate forKey:kOpenUDIDTSKey];
             saveLocalDictToDefaults = YES;
