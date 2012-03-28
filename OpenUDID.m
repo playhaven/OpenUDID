@@ -237,8 +237,9 @@ static int const kOpenUDIDRedundancySlots = 100;
                 [frequencyDict setObject:[NSNumber numberWithInt:++count] forKey:oudid];
             }
             // if we have a match with the bundleid, then let's look if the external UIPasteboard representation marks this app as OptedOut
+            // JF: for the sake of migration, we'll also allow lookup by the bundleId. Sanitation of existing records is left as a TODO. 
             NSString* bid = [dict objectForKey:kOpenUDIDBIDKey];
-            if (bid!=nil && [bid isEqualToString:hashedBundleid]) {
+            if (bid!=nil && ([bid isEqualToString:hashedBundleid] || [bid isEqualToString:bundleid])) {
                 myRedundancySlotPBid = slotPBid;
                 optedOutDate = [dict objectForKey:kOpenUDIDOOTSKey];
                 optedOut = optedOutDate!=nil;
