@@ -194,9 +194,8 @@ static int const kOpenUDIDRedundancySlots = 100;
         [defaults synchronize];
     }
     
-    // create hashed bundle id
+    // create hashed bundle id using the bundle id and the salt
     hashedBundleid = [OpenUDID _hashForString:[bundleid stringByAppendingString:bundleSalt]];
-    NSLog(@"Hashed bundle id! %@", hashedBundleid);
     
     // Do we have a local copy of the OpenUDID dictionary?
     // This local copy contains a copy of the openUDID, myRedundancySlotPBid (and unused in this block, the local bundleid, and the timestamp)
